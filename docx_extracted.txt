@@ -1,0 +1,851 @@
+AVF Vending
+Enterprise Project Structure
+Complete — Accurate — Maximum Detail
+📦 Scope Tài Liệu — Toàn Bộ Nội Dung
+PHẦN 1 — Root & buildSrc: convention plugins, scripts, CI/CD
+PHẦN 2 — :app module: 4 flavors (xy · tcn · co · mock) + source sets
+PHẦN 3 — :core modules: domain, common, testing, logger
+PHẦN 4 — :data modules: local (Room), remote (Retrofit), repository
+PHẦN 5 — :hardware modules: api, transport, strategy, xy, tcn, co, bill, mock
+PHẦN 6 — :payment modules: cash (ICT-BC), wallet (QR), orchestrator
+PHẦN 7 — :sync module: SyncEngine, SyncQueue, NetworkMonitor
+PHẦN 8 — :config module: RemoteConfig, FeatureFlags, StrategyConfig
+PHẦN 9 — :feature modules: storefront, payment, dispensing, idle, admin
+PHẦN 10 — :ui modules: theme, components, navigation
+PHẦN 11 — Test structure: unit, integration, instrumented
+PHẦN 12 — Module dependency rules + Build variants table
+Thông Số
+Giá Trị
+Package gốc
+com.avf.vending
+Min SDK / Target SDK
+API 21 (Android 5.0) / API 35
+Kotlin / Compose BOM
+2.0.0 (K2) / 2024.09.00
+Hilt / Room
+2.52 / 2.6.1
+Tổng modules
+21 modules
+Machine flavors
+xy · tcn · co · mock
+Env flavors
+production · staging · dev
+Bill Validator Protocol
+ICT-BC (9600/8E1, XOR checksum)
+Thanh toán
+Tiền mặt (bill) · Ví điện tử / QR
+Communication
+Strategy Pattern + Auto-Fallback Chain
+Build variants
+4 machines × 3 envs × 2 types = 24 variants
+Architecture
+Clean Architecture + MVI + Strategy + Plugin
+© AVF Team — Enterprise Internal Technical Document
+PHẦN 1 — Root Project  Config · Scripts · CI/CD
+📌 Nguyên Tắc Root
+Root KHÔNG chứa business logic — chỉ chứa config, scripts, convention plugins
+buildSrc = convention plugins tái dùng gradle config (không lặp lại giữa modules)
+libs.versions.toml = NGUỒN SỰ THẬT DUY NHẤT cho mọi dependency version
+AVFVending/                                            ← Root project
+├── 📁 .github/workflows/                             ← GitHub Actions CI/CD
+│   ├── 🔧 build-release.yml                         ← Build tất cả production APKs
+│   ├── 🔧 build-xy.yml                              ← Build + deploy XY flavor
+│   ├── 🔧 build-tcn.yml                             ← Build + deploy TCN flavor
+│   ├── 🔧 build-co.yml                              ← Build + deploy Máy Cơ flavor
+│   └── 🔧 pr-check.yml                              ← Lint + unit test khi có PR
+│
+├── 📁 buildSrc/                                      ← Convention Plugins
+│   ├── 🔧 build.gradle.kts                          ← buildSrc dependencies
+│   └── 📁 src/main/kotlin/
+│       ├── 📝 AndroidLibraryPlugin.kt               ← Base config cho mọi library module
+│       ├── 📝 AndroidFeaturePlugin.kt               ← Config feature modules (Compose+Hilt)
+│       ├── 📝 AndroidHiltPlugin.kt                  ← Hilt setup tái dùng
+│       ├── 📝 KotlinLibraryPlugin.kt                ← Pure Kotlin modules (no Android)
+│       └── 📝 Versions.kt                           ← Compile SDK, min SDK constants
+│
+├── 📁 gradle/
+│   ├── 🔧 libs.versions.toml                        ← VERSION CATALOG — mọi version ở đây
+│   └── 📁 wrapper/
+│       ├── 🔧 gradle-wrapper.jar
+│       └── 🔧 gradle-wrapper.properties             ← Gradle 8.5
+│
+├── 📁 scripts/
+│   ├── 🔧 deploy-xy.sh                              ← adb install XY APK
+│   ├── 🔧 deploy-tcn.sh
+│   ├── 🔧 deploy-co.sh
+│   ├── 🔧 sign-release.sh                           ← ký APK production
+│   └── 🔧 bump-version.sh                           ← tăng versionCode
+│
+├── 📁 docs/
+│   ├── 📝 ARCHITECTURE.md                           ← Giải thích kiến trúc tổng thể
+│   ├── 📝 HARDWARE_PROTOCOLS.md                     ← XY/TCN/CO/ICT-BC specs
+│   └── 📝 DEPLOYMENT.md                             ← Hướng dẫn deploy lên máy
+│
+├── 🔧 settings.gradle.kts                           ← Khai báo 21 modules
+├── 🔧 build.gradle.kts                              ← Root build (plugin declarations only)
+├── 🔧 gradle.properties                             ← JVM 4GB, parallel=true, caching=true
+├── 🔧 proguard-rules-base.pro                       ← Base ProGuard rules dùng chung
+├── 🔧 .editorconfig                                 ← Code style thống nhất toàn team
+├── 🔧 .gitignore
+└── 📝 README.md
+PHẦN 2 — :app Module  4 Flavors × Source Sets × DI Wiring
+📌 Vai Trò :app
+:app là shell — KHÔNG chứa business logic, KHÔNG chứa UI phức tạp
+Chứa: Application class, MainActivity, Product Flavors, DI wiring duy nhất
+Mỗi flavor có source set riêng chứa đúng 1 file HardwareModule.kt
+HardwareModule inject: VendingDriver + BillDriver + List<PaymentProcessor>
+app/
+├── 🔧 build.gradle.kts                              ← Product Flavors, per-flavor deps
+├── 🔧 proguard-rules.pro
+│
+└── 📁 src/
+│
+├── 📁 main/                                      ← Code & resources CHUNG mọi flavor
+│   ├── 🔧 AndroidManifest.xml                   ← Base manifest (no machine-specific perms)
+│   └── 📁 kotlin/com/avf/vending/
+│       ├── 📝 VendingApp.kt                     ← @HiltAndroidApp, Timber, ImageLoader, Strict
+│       ├── 📝 MainActivity.kt                   ← Single Activity, setContent NavHost
+│       └── 📁 di/
+│           ├── 📝 AppModule.kt                  ← @ApplicationContext, Clock, AppScope
+│           ├── 📝 DispatcherModule.kt           ← IO/Default/Main/Hardware dispatchers
+│           └── 📝 NavigationModule.kt           ← NavController bindings
+│
+├── 📁 xy/                                        ← ── FLAVOR: XY Serial ──────────────────
+│   ├── 🔧 AndroidManifest.xml                   ← USB_PERMISSION, RECEIVE_BOOT_COMPLETED
+│   ├── 📁 kotlin/com/avf/vending/di/
+│   │   └── 📝 HardwareModule.kt                 ← XYDriver(StrategyManager)
+│   │                                            ← ICTBillDriver(StrategyManager)
+│   │                                            ← [CashProcessor, WalletProcessor]
+│   └── 📁 res/
+│       ├── 📁 values/strings.xml                ← app_name = "AVF Vending XY"
+│       └── 📁 mipmap-*/ic_launcher.png          ← Icon màu xanh dương
+│
+├── 📁 tcn/                                       ← ── FLAVOR: TCN ─────────────────────────
+│   ├── 🔧 AndroidManifest.xml                   ← USB_PERMISSION + INTERNET (TCP/IP)
+│   ├── 📁 kotlin/com/avf/vending/di/
+│   │   └── 📝 HardwareModule.kt                 ← TCNDriver(StrategyManager)
+│   │                                            ← ICTBillDriver(StrategyManager)
+│   │                                            ← [CashProcessor, WalletProcessor]
+│   └── 📁 res/
+│       ├── 📁 values/strings.xml                ← app_name = "AVF Vending TCN"
+│       └── 📁 mipmap-*/ic_launcher.png          ← Icon màu xanh lá
+│
+├── 📁 co/                                        ← ── FLAVOR: Máy Cơ ──────────────────────
+│   ├── 🔧 AndroidManifest.xml                   ← USB_PERMISSION
+│   ├── 📁 kotlin/com/avf/vending/di/
+│   │   └── 📝 HardwareModule.kt                 ← CoDriver(StrategyManager)
+│   │                                            ← ICTBillDriver(StrategyManager)
+│   │                                            ← [CashProcessor, WalletProcessor]
+│   └── 📁 res/
+│       ├── 📁 values/strings.xml                ← app_name = "AVF Vending CO"
+│       └── 📁 mipmap-*/ic_launcher.png          ← Icon màu cam
+│
+└── 📁 mock/                                      ← ── FLAVOR: Mock/Demo ───────────────────
+├── 📁 kotlin/com/avf/vending/di/
+│   └── 📝 HardwareModule.kt                 ← MockVendingDriver
+│                                            ← MockBillDriver
+│                                            ← [MockCashProcessor, MockWalletProcessor]
+└── 📁 res/values/strings.xml                ← app_name = "AVF Demo"
+◆ Flavor Matrix & Build Variants
+Flavor
+applicationId
+Vending Driver
+Bill Driver
+Strategies
+xy
+com.avf.vending.xy
+XYDriver
+ICTBillDriver
+Serial S0 → Serial S1 → USB
+tcn
+com.avf.vending.tcn
+TCNDriver
+ICTBillDriver
+RS485 → TCP/IP → Serial backup
+co
+com.avf.vending.co
+CoDriver
+ICTBillDriver
+Serial S0 → Serial S2 → USB
+mock
+com.avf.vending.mock
+MockVendingDriver
+MockBillDriver
+In-memory only
+PHẦN 3 — :core Modules  Pure Kotlin · Zero Android
+📌 Quy Tắc Core
+core-domain: ZERO Android deps — pure Kotlin, JVM only
+Đây là trái tim — mọi module khác depend vào core-domain
+Không được import android.* trong bất kỳ file nào của core-domain
+▌ :core:core-domain — Domain Models + UseCases
+core/core-domain/
+├── 🔧 build.gradle.kts                              ← KotlinLibraryPlugin, NO android block
+└── 📁 src/main/kotlin/com/avf/vending/domain/
+├── 📁 model/
+│   ├── 📝 Product.kt                            ← @Stable @Immutable, ImmutablePrice(Long)
+│   ├── 📝 Slot.kt                               ← Slot, SlotAddress(row:Char, col:Int)
+│   ├── 📝 Category.kt
+│   ├── 📝 Transaction.kt                        ← Transaction, TransactionStatus
+│   ├── 📝 Payment.kt                            ← Payment, PaymentMethod, PaymentStatus
+│   ├── 📝 PaymentSession.kt                     ← id, amount, type, qrData, expiresAt
+│   ├── 📝 PaymentReceipt.kt                     ← id, amount, change, method, timestamp
+│   ├── 📝 MachineStatus.kt                      ← temperature, doorOpen, errors
+│   ├── 📝 SyncStatus.kt                         ← enum: SYNCED, PENDING, CONFLICT
+│   └── 📝 AppError.kt                           ← sealed class AppError hierarchy
+├── 📁 usecase/
+│   ├── 📝 GetProductsUseCase.kt                 ← L1→L4 cache chain
+│   ├── 📝 GetProductBySlotUseCase.kt
+│   ├── 📝 DispenseProductUseCase.kt             ← validate → persist → hardware dispense
+│   ├── 📝 ProcessPaymentUseCase.kt
+│   ├── 📝 RefundPaymentUseCase.kt
+│   ├── 📝 UpdateStockUseCase.kt                 ← sau dispense thành công
+│   ├── 📝 SyncInventoryUseCase.kt
+│   ├── 📝 GetTransactionHistoryUseCase.kt
+│   └── 📝 ValidateSlotUseCase.kt
+└── 📁 repository/
+├── 📝 ProductRepository.kt                  ← interface (DIP)
+├── 📝 TransactionRepository.kt
+├── 📝 PaymentRepository.kt
+├── 📝 HardwareRepository.kt
+├── 📝 ConfigRepository.kt
+└── 📝 SyncRepository.kt
+▌ :core:core-common — Utilities
+core/core-common/
+└── 📁 src/main/kotlin/com/avf/vending/common/
+├── 📁 result/
+│   ├── 📝 AppResult.kt                         ← sealed AppResult<T>: Success, Failure
+│   └── 📝 ResultExtensions.kt                  ← map, flatMap, onSuccess, onFailure
+├── 📁 coroutine/
+│   ├── 📝 DispatcherProvider.kt                ← interface: io, default, main, hardware
+│   ├── 📝 FlowExtensions.kt                    ← retryWithBackoff, throttleFirst
+│   └── 📝 CoroutineScopeFactory.kt             ← AppScope, HardwareScope builders
+├── 📁 time/
+│   ├── 📝 Clock.kt                             ← interface Clock { now(): Long }
+│   └── 📝 SystemClock.kt                       ← System.currentTimeMillis() impl
+├── 📁 validation/
+│   ├── 📝 Validator.kt                         ← interface Validator<T>
+│   └── 📝 ValidationResult.kt
+└── 📁 extension/
+├── 📝 ByteArrayExtensions.kt               ← toHex(), xorChecksum(), crc16()
+├── 📝 StringExtensions.kt                  ← toSlotAddress()
+└── 📝 NumberExtensions.kt                  ← Long.toVnd(), Int.toBytes()
+▌ :core:core-testing & :core:core-logger
+core/core-testing/src/main/kotlin/com/avf/vending/testing/
+├── 📝 TestDispatcherProvider.kt                    ← UnconfinedTestDispatcher
+├── 📝 FakeClock.kt                                 ← controllable clock
+├── 📝 FakeProductRepository.kt
+├── 📝 FakeTransactionRepository.kt
+├── 📝 FakeHardwareRepository.kt
+├── 📝 FakeBillValidatorDriver.kt                   ← fake bill events
+├── 📝 FakeStrategyManager.kt                       ← fake communication
+├── 📝 ProductFactory.kt                            ← test data builders
+├── 📝 TransactionFactory.kt
+└── 📝 CoroutineTestRule.kt
+core/core-logger/src/main/kotlin/com/avf/vending/logger/
+├── 📝 AppLogger.kt                                 ← interface: d, i, w, e
+├── 📝 TimberLogger.kt                              ← Timber impl (debug/staging)
+└── 📝 NoOpLogger.kt                                ← silent impl (production)
+PHẦN 4 — :data Modules  Room · Retrofit · Cache · Repository
+▌ :data:data-local — Room DB + DataStore
+data/data-local/
+├── 🔧 build.gradle.kts                             ← Room KSP, DataStore Proto
+└── 📁 src/main/kotlin/com/avf/vending/local/
+├── 📁 database/
+│   ├── 📝 VendingDatabase.kt                   ← @Database, WAL mode, 4 read threads
+│   ├── 📁 entity/
+│   │   ├── 📝 ProductEntity.kt                 ← @Entity, indices, price as Long (VND)
+│   │   ├── 📝 SlotEntity.kt                    ← slot_id UNIQUE index
+│   │   ├── 📝 CategoryEntity.kt
+│   │   ├── 📝 TransactionEntity.kt             ← syncStatus: Int
+│   │   ├── 📝 PaymentEntity.kt                 ← method, amount, change
+│   │   └── 📝 SyncQueueEntity.kt               ← priority, retryCount, nextRetryAt
+│   ├── 📁 dao/
+│   │   ├── 📝 ProductDao.kt                    ← observeActiveProducts() Flow
+│   │   │                                       ← upsertAll() bulk transaction
+│   │   │                                       ← updateStock() partial update
+│   │   │                                       ← getChangedSince(timestamp) delta
+│   │   ├── 📝 SlotDao.kt
+│   │   ├── 📝 CategoryDao.kt
+│   │   ├── 📝 TransactionDao.kt                ← insertPending(), markSynced()
+│   │   ├── 📝 PaymentDao.kt
+│   │   └── 📝 SyncQueueDao.kt                  ← getPendingByPriority() ORDER BY priority
+│   ├── 📁 converter/
+│   │   ├── 📝 DateConverter.kt
+│   │   └── 📝 EnumConverters.kt
+│   └── 📁 migration/
+│       └── 📝 Migration1To2.kt
+├── 📁 datastore/
+│   ├── 📝 ConfigDataStore.kt                   ← MachineConfig (Proto)
+│   ├── 📝 StrategyDataStore.kt                 ← StrategyConfig per machine (Proto)
+│   ├── 📝 SessionDataStore.kt                  ← lastSyncAt, idleTimeout
+│   └── 📝 UserPrefsDataStore.kt                ← adminPin, displaySettings
+└── 📁 cache/
+├── 📝 ProductMemCache.kt                   ← in-memory TTL 60s (L1)
+└── 📝 ByteArrayPool.kt                     ← ConcurrentLinkedQueue (thread-safe)
+▌ :data:data-remote — Network
+data/data-remote/
+└── 📁 src/main/kotlin/com/avf/vending/remote/
+├── 📁 api/
+│   ├── 📝 ProductApiService.kt                 ← getProductsDelta(since: Long)
+│   ├── 📝 TransactionApiService.kt             ← uploadBatch()
+│   ├── 📝 ConfigApiService.kt                  ← getMachineConfig(machineId)
+│   ├── 📝 WalletApiService.kt                  ← createQR(), checkStatus(sessionId)
+│   └── 📝 TelemetryApiService.kt
+├── 📁 dto/
+│   ├── 📝 ProductDto.kt
+│   ├── 📝 TransactionDto.kt
+│   ├── 📝 DeltaResponseDto.kt                  ← updated: List<T>, deleted: List<String>
+│   ├── 📝 WalletQRResponseDto.kt               ← sessionId, qrString, deepLink, expiresAt
+│   ├── 📝 WalletStatusDto.kt                   ← state: "PENDING"|"PAID"|"EXPIRED"
+│   └── 📝 ConfigDto.kt
+├── 📁 interceptor/
+│   ├── 📝 AuthInterceptor.kt                   ← Bearer token
+│   ├── 📝 OfflineCacheInterceptor.kt           ← stale cache khi offline
+│   └── 📝 LoggingInterceptor.kt                ← debug/staging only
+├── 📁 circuit/
+│   ├── 📝 CircuitBreaker.kt                    ← CLOSED/OPEN/HALF_OPEN
+│   └── 📝 CircuitBreakerConfig.kt              ← failureThreshold=5, reset=60s
+└── 📁 di/
+└── 📝 NetworkModule.kt                     ← OkHttpClient, Retrofit, APIs
+▌ :data:data-repository — Repository Impls + Mappers
+data/data-repository/
+└── 📁 src/main/kotlin/com/avf/vending/repository/
+├── 📁 impl/
+│   ├── 📝 ProductRepositoryImpl.kt             ← L1(mem)→L3(Room)→L4(API) chain
+│   ├── 📝 TransactionRepositoryImpl.kt         ← insert local → enqueue SyncQueue
+│   ├── 📝 PaymentRepositoryImpl.kt
+│   ├── 📝 ConfigRepositoryImpl.kt              ← remote → validate → local save
+│   └── 📝 SyncRepositoryImpl.kt
+├── 📁 mapper/
+│   ├── 📝 ProductMapper.kt                     ← Entity↔Domain↔DTO
+│   ├── 📝 TransactionMapper.kt
+│   └── 📝 PaymentMapper.kt
+└── 📁 di/
+└── 📝 RepositoryModule.kt                  ← bind interfaces → impls
+PHẦN 5 — :hardware Modules  Strategy · 3 Machines · Bill · Transport
+📌 3-Layer + Strategy Pattern
+TRANSPORT    → raw bytes: Serial/RS485/TCP/USB — không biết protocol
+STRATEGY MGR → quản lý fallback chain: thử S0 → thử S1 → thử TCP → lỗi
+CODEC        → encode command → bytes, decode bytes → frame (XY/TCN/CO/ICT)
+DRIVER       → business logic: retry, timeout, event parsing, domain mapping
+Feature layer CHỈ GỌI VendingMachineDriver.dispense() — không biết gì khác
+▌ :hardware:hardware-api — Interfaces Only (Pure Kotlin)
+hardware/hardware-api/
+├── 🔧 build.gradle.kts                             ← KotlinLibraryPlugin, ZERO Android
+└── 📁 src/main/kotlin/com/avf/vending/hardware/api/
+├── 📁 driver/
+│   ├── 📝 VendingMachineDriver.kt              ← connect, dispense, getStatus, getInventory
+│   └── 📝 BillValidatorDriver.kt               ← connect, pollStatus, accept, reject, dispense
+├── 📁 strategy/
+│   ├── 📝 CommunicationStrategy.kt             ← id, type, isAvailable, send, receiveStream
+│   ├── 📝 StrategyType.kt                      ← SERIAL_RS232, RS485, TCP_IP, USB_SERIAL
+│   └── 📝 HealthStatus.kt                      ← sealed: Healthy, Degraded, Failed
+├── 📁 codec/
+│   ├── 📝 FrameCodec.kt                        ← encode(cmd)→ByteArray, decode(bytes)→Frame
+│   └── 📝 FrameAccumulator.kt                  ← feed(bytes)→List<Frame>
+├── 📁 model/
+│   ├── 📝 DispenseResult.kt                    ← sealed: Success, Failed, Timeout
+│   ├── 📝 MachineStatus.kt
+│   ├── 📝 SlotStatus.kt                        ← slotId, stock, motorOk
+│   ├── 📝 TestResult.kt
+│   ├── 📝 ConnectionState.kt                   ← enum: DISCONNECTED/CONNECTING/CONNECTED
+│   └── 📝 BillStatus.kt                        ← ready, stackerCount, errorCode
+├── 📁 event/
+│   ├── 📝 MachineEvent.kt                      ← SlotEmpty, MotorJammed, DoorOpened, Temp
+│   ├── 📝 ConnectionEvent.kt
+│   └── 📝 BillEvent.kt                         ← BillInserted, Accepted, Rejected, Jammed
+├── 📁 config/
+│   ├── 📝 SerialConfig.kt                      ← portName, baudRate, dataBits, parity
+│   ├── 📝 Rs485Config.kt                       ← + lineDelayMs, hardwareFlowControl
+│   └── 📝 TcpConfig.kt                         ← host, port, connectTimeoutMs
+└── 📁 exception/
+├── 📝 CommunicationException.kt
+├── 📝 ChecksumException.kt
+├── 📝 FrameDecodeException.kt
+└── 📝 NoStrategyAvailableException.kt
+▌ :hardware:hardware-transport — Raw I/O + StrategyManager
+hardware/hardware-transport/
+├── 🔧 build.gradle.kts                             ← usb-serial-for-android dep
+└── 📁 src/main/kotlin/com/avf/vending/hardware/transport/
+├── 📝 SerialTransport.kt                       ← RS232/UART — XY, CO, Bill
+│                                               ← readStream() via InputStream polling
+│                                               ← ByteArrayPool tránh GC pressure
+├── 📝 Rs485Transport.kt                        ← Half-duplex, busMutex per write
+│                                               ← drain→write→lineDelay→read sequence
+├── 📝 TcpTransport.kt                          ← TCP Socket, tcpNoDelay, keepAlive
+│                                               ← writeMutex serialize writes
+├── 📝 UsbSerialTransport.kt                    ← usb-serial-for-android adapter
+│                                               ← UsbDeviceConnection management
+├── 📝 StrategyManager.kt                       ← ── CORE: Fallback Chain ──────────────
+│                                               ← List<CommunicationStrategy> ordered
+│                                               ← auto-fallback khi strategy fail
+│                                               ← forceStrategy() admin override
+│                                               ← healthCheck() background monitor
+│                                               ← saveLastSuccessful() → restore on boot
+├── 📝 TransportFactory.kt                      ← StrategyEntry → CommunicationStrategy
+└── 📁 strategy/
+├── 📝 SerialStrategy.kt                    ← wraps SerialTransport
+├── 📝 Rs485Strategy.kt                     ← wraps Rs485Transport
+├── 📝 TcpStrategy.kt                       ← wraps TcpTransport
+└── 📝 UsbSerialStrategy.kt                 ← wraps UsbSerialTransport
+▌ :hardware:hardware-xy — XY Serial Driver
+ICT-BC Frame: [STX 0x02][LEN][ADDR][CMD][DATA][XOR][ETX 0x03] — 9600/8N1
+hardware/hardware-xy/
+├── 🔧 build.gradle.kts
+└── 📁 src/main/kotlin/com/avf/vending/hardware/xy/
+├── 📝 XYDriver.kt                              ← implements VendingMachineDriver
+│                                               ← inject StrategyManager (không hard-code)
+│                                               ← retry 3x với delay 500ms×attempt
+│                                               ← poll events mỗi 2 giây
+├── 📝 XYFrameCodec.kt                          ← STX(0x02)+LEN+ADDR+CMD+DATA+XOR+ETX(0x03)
+├── 📝 XYAccumulator.kt                         ← find STX→collect→ETX→emit frame
+├── 📝 XYCommand.kt                             ← sealed: Dispense(row,col), Poll, GetSlots
+├── 📝 XYResponse.kt                            ← addr, cmdCode, status, data
+├── 📝 XYCommands.kt                            ← DISPENSE=0x31, POLL=0x00, GET_INV=0x32
+├── 📝 XYStatusMapper.kt                        ← 0x00→SUCCESS, 0x01→MOTOR_FAIL...
+├── 📝 XYInventoryParser.kt                     ← bytes→List<SlotStatus>
+└── 📁 strategy/
+└── 📝 XYStrategyDefaults.kt                ← default StrategyConfig cho XY
+← [Serial S0 9600N] → [Serial S1 9600N] → [USB]
+▌ :hardware:hardware-tcn — TCN Driver (RS485 & TCP cùng driver)
+TCN Frame: [AA][55][LEN_HI][LEN_LO][SEQ][CMD][DATA][CRC_HI][CRC_LO] — 19200/8N1 RS485 hoặc TCP
+hardware/hardware-tcn/
+└── 📁 src/main/kotlin/com/avf/vending/hardware/tcn/
+├── 📝 TCNDriver.kt                             ← implements VendingMachineDriver
+│                                               ← inject StrategyManager
+│                                               ← TCP: nhận push events passively
+│                                               ← RS485: poll mỗi 1 giây
+├── 📝 TCNFrameCodec.kt                         ← 0xAA55+LEN(2B)+SEQ+CMD+DATA+CRC16CCITT
+├── 📝 TCNAccumulator.kt                        ← find 0xAA55→read length→wait full frame
+├── 📝 TCNCommand.kt
+├── 📝 TCNResponse.kt                           ← seq, cmdCode, data, isSuccess
+├── 📝 TCNCommands.kt                           ← VEND_REQUEST, STATUS_POLL, GET_INV...
+├── 📝 TCNStatusMapper.kt
+├── 📝 CRC16CCITT.kt                            ← CRC16 calculator
+└── 📁 strategy/
+└── 📝 TCNStrategyDefaults.kt               ← [RS485 S0 19200] → [TCP 192.168.1.100:4001]
+← → [Serial S1 9600 backup]
+▌ :hardware:hardware-co — Máy Cơ Driver
+Máy Cơ: protocol custom — linh hoạt nhất, nhiều cổng backup nhất
+hardware/hardware-co/                               ← MODULE MỚI cho Máy Cơ
+└── 📁 src/main/kotlin/com/avf/vending/hardware/co/
+├── 📝 CoDriver.kt                              ← implements VendingMachineDriver
+│                                               ← inject StrategyManager
+├── 📝 CoFrameCodec.kt                          ← protocol riêng của Máy Cơ
+├── 📝 CoAccumulator.kt
+├── 📝 CoCommand.kt
+├── 📝 CoResponse.kt
+├── 📝 CoCommands.kt
+├── 📝 CoStatusMapper.kt
+└── 📁 strategy/
+└── 📝 CoStrategyDefaults.kt                ← [Serial S0 9600N] → [Serial S2 9600N]
+← → [USB-Serial adapter]
+▌ :hardware:hardware-bill — ICT-BC Bill Validator
+ICT-BC Frame: [DA][LNG][SA][RC][CMD][DATA][FCC=XOR] — 9600/8E1 (Even parity!)
+DA=0x03 (bill addr), SA=0x01 (controller), RC=0x00 (reserve)
+FCC = DA xor LNG xor SA xor RC xor CMD xor all(DATA)
+hardware/hardware-bill/
+├── 🔧 build.gradle.kts
+└── 📁 src/main/kotlin/com/avf/vending/hardware/bill/
+├── 📝 ICTBillDriver.kt                         ← implements BillValidatorDriver
+│                                               ← inject StrategyManager (9600/8E1)
+│                                               ← poll CMD=25 mỗi 500ms
+├── 📝 ICTFrameCodec.kt                         ← encode/decode ICT-BC frames
+├── 📝 ICTAccumulator.kt                        ← detect frame bằng DA byte
+├── 📝 ICTCommands.kt                           ← RESET=10,POLL_STATUS=25,
+│                                               ← ESCROW_DECISION=26,DISPENSE=28
+├── 📝 ICTAddresses.kt                          ← CONTROLLER=0x01, BILL=0x03
+├── 📝 ICTStatusParser.kt                       ← parse poll response → BillStatus
+├── 📝 ICTEventMapper.kt                        ← status bytes → BillEvent sealed class
+└── 📁 strategy/
+└── 📝 BillStrategyDefaults.kt              ← [Serial S1 9600E] → [USB-Serial 9600E]
+← NOTE: parity=EVEN bắt buộc cho ICT-BC
+▌ :hardware:hardware-mock — Fake Drivers (Dev & Test)
+hardware/hardware-mock/
+└── 📁 src/main/kotlin/com/avf/vending/hardware/mock/
+├── 📝 MockVendingDriver.kt                     ← giả lập XY/TCN/CO, delay responseDelay
+├── 📝 MockBillDriver.kt                        ← giả lập bill events theo scenario
+├── 📝 MockScenarios.kt                         ← DEFAULT, ALWAYS_FAIL, RANDOM_EMPTY
+└── 📝 MockEventSimulator.kt                    ← emit random events theo schedule
+PHẦN 6 — :payment Module  Cash + Wallet · Orchestrator
+📌 Thiết Kế Thanh Toán
+PaymentProcessor = interface — mọi phương thức implement cùng contract
+CashPaymentProcessor — nhận events từ BillValidatorDriver (ICT-BC)
+WalletPaymentProcessor — HTTP poll server, emit events khi user quét QR
+PaymentOrchestrator — merge events từ mọi processor, expose cho ViewModel
+payment/                                             ← MODULE MỚI
+├── 🔧 build.gradle.kts
+└── 📁 src/main/kotlin/com/avf/vending/payment/
+├── 📁 api/
+│   ├── 📝 PaymentProcessor.kt                  ← interface: startSession, cancel, confirm
+│   ├── 📝 PaymentType.kt                       ← enum: CASH, QR_WALLET, NFC, CARD
+│   └── 📝 PaymentEvent.kt                      ← sealed: CashInserted, WalletConfirmed...
+│       ← CashInserted(denomination, total)
+│       ← CashSufficient(total, change)
+│       ← CashRejected(reason)
+│       ← ChangeDispensed(amount)
+│       ← WalletScanReady(qrData, deepLink)
+│       ← WalletConfirmed(transactionId, amount)
+│       ← WalletTimeout
+│       ← WalletFailed(reason)
+├── 📁 impl/
+│   ├── 📝 CashPaymentProcessor.kt              ← wraps BillValidatorDriver
+│   │                                           ← map BillEvent → PaymentEvent
+│   │                                           ← track totalInserted vs requiredAmount
+│   │                                           ← acceptBill() / rejectBill() / dispenseChange()
+│   ├── 📝 WalletPaymentProcessor.kt            ← HTTP createQR() → poll checkStatus()
+│   │                                           ← poll mỗi 3s × 60 lần = 3 phút timeout
+│   │                                           ← only available khi network online
+│   ├── 📝 MockCashProcessor.kt                 ← fake: emit events sau delay
+│   └── 📝 MockWalletProcessor.kt               ← fake: emit WalletConfirmed sau 3s
+├── 📝 PaymentOrchestrator.kt                   ← merge(*processors.map{it.events})
+│                                               ← availableProcessors: Flow<List>
+│                                               ← startPayment(amount, preferredType?)
+└── 📁 di/
+└── 📝 PaymentModule.kt                     ← bind processors (từ HardwareModule)
+PHẦN 7 & 8 — :sync & :config  Offline-First · Remote Config · Strategy Store
+▌ :sync — Sync Engine
+sync/
+└── 📁 src/main/kotlin/com/avf/vending/sync/
+├── 📝 SyncEngine.kt                            ← delta sync: getProductsDelta(lastSyncAt)
+│                                               ← batch by entityType → giảm HTTP calls
+├── 📝 SyncQueue.kt                             ← processor theo priority ASC
+│                                               ← priority: payment=1, inventory=5, log=10
+│                                               ← backoff: 1s,2s,4s,8s,16s, max=5min
+├── 📝 NetworkMonitor.kt                        ← callbackFlow(ConnectivityManager)
+│                                               ← emit true/false distinctUntilChanged
+├── 📝 ConnectivityAwareSyncManager.kt          ← isOnline.filter{it}.debounce(500)
+│                                               ← .collect{ syncQueue + deltaSync }
+└── 📁 worker/
+├── 📝 PeriodicSyncWorker.kt                ← WorkManager 15-min periodic
+└── 📝 ImmediateSyncWorker.kt               ← trigger khi network available
+▌ :config — Remote Config + Feature Flags + Strategy Config
+config/
+└── 📁 src/main/kotlin/com/avf/vending/config/
+├── 📝 MachineConfig.kt                         ← @Serializable root config
+├── 📝 HardwareConfig.kt                        ← dispensing, sensors, timeouts
+├── 📝 UIConfig.kt                              ← theme, layout, idleTimeout, language
+├── 📝 BusinessConfig.kt                        ← tax, receipt, promo rules
+├── 📝 FeatureFlags.kt                          ← cashEnabled, walletEnabled, nfc...
+├── 📝 PerformanceConfig.kt                     ← imageCacheMb, syncInterval, logLevel
+├── 📝 StrategyConfig.kt                        ← @Serializable machineType, strategies[]
+├── 📝 StrategyEntry.kt                         ← id, type, portName, baudRate, parity,
+│                                               ← tcpHost, tcpPort, lineDelayMs, label
+├── 📝 StrategyDefaults.kt                      ← xyDefault, tcnDefault, coDefault, ictDefault
+├── 📝 ConfigValidator.kt                       ← validate + sanitize remote config
+├── 📝 ConfigRepositoryImpl.kt                  ← StateFlow<MachineConfig> hot reload
+└── 📁 di/
+└── 📝 ConfigModule.kt
+PHẦN 9 — :feature Modules  Compose + MVI + ViewModel
+📌 Pattern Mỗi Feature
+Screen.kt → @Composable, observe ViewModel state, gửi UiEvent
+ViewModel.kt → StateFlow tách riêng theo tần suất thay đổi
+State.kt → sealed UiState + UiEvent + UiEffect
+components/ → Composables nhỏ tái dùng trong feature đó
+▌ :feature:feature-storefront
+feature/feature-storefront/
+└── 📁 src/main/kotlin/com/avf/vending/storefront/
+├── 📝 StorefrontScreen.kt                      ← LazyVerticalGrid, key={id}, contentType
+├── 📝 StorefrontViewModel.kt                   ← productList, selection, timer TÁCH RIÊNG
+├── 📝 StorefrontState.kt                       ← ProductListState, SelectionState, TimerState
+└── 📁 components/
+├── 📝 ProductCard.kt                       ← @Stable, Coil AsyncImage, animateItem()
+├── 📝 ProductGrid.kt
+├── 📝 CategoryBar.kt
+├── 📝 SearchBar.kt
+├── 📝 StockBadge.kt
+└── 📝 PriceTag.kt                          ← format VND
+▌ :feature:feature-payment — FSM + 2 Phương Thức
+feature/feature-payment/
+└── 📁 src/main/kotlin/com/avf/vending/payment/
+├── 📝 PaymentScreen.kt                         ← observe FSM state → render panel tương ứng
+├── 📝 PaymentViewModel.kt                      ← observe PaymentOrchestrator.allEvents
+│                                               ← delegate transition → PaymentStateMachine
+├── 📝 PaymentState.kt                          ← sealed: Idle→Selected→Awaiting→Received
+│                                               ←        →Dispensing→Completed→Failed→Refunding
+├── 📝 PaymentEvent.kt                          ← sealed: ProductSelected, PaymentConfirmed...
+├── 📝 PaymentStateMachine.kt                   ← CRITICAL: persist TRƯỚC khi dispense!
+│                                               ← chỉ allow valid transitions
+└── 📁 components/
+├── 📝 PaymentMethodSelector.kt             ← hiển thị Cash/QR theo FeatureFlags
+├── 📝 CashPaymentPanel.kt                  ← show tiền đã nhận, còn thiếu
+│                                           ← cập nhật realtime từ CashInserted event
+├── 📝 WalletPaymentPanel.kt                ← show QR code + deeplink button
+│                                           ← countdown timer 3 phút
+├── 📝 PaymentTimer.kt                      ← animated countdown ring
+└── 📝 RefundDialog.kt
+▌ :feature:feature-dispensing + :feature:feature-idle
+feature/feature-dispensing/
+└── 📁 src/main/kotlin/com/avf/vending/dispensing/
+├── 📝 DispensingScreen.kt
+├── 📝 DispensingViewModel.kt                   ← gọi DispenseProductUseCase
+│                                               ← observe MachineEvent.SlotEmpty/MotorJammed
+├── 📝 DispensingState.kt                       ← Dispensing, Success, Failed, Timeout
+└── 📁 components/
+├── 📝 DispensingAnimation.kt
+├── 📝 SuccessScreen.kt
+├── 📝 FailedScreen.kt
+└── 📝 TimeoutScreen.kt
+feature/feature-idle/
+└── 📁 src/main/kotlin/com/avf/vending/idle/
+├── 📝 IdleScreen.kt
+├── 📝 IdleViewModel.kt
+└── 📁 components/
+├── 📝 AttractCarousel.kt                   ← auto-slide banner quảng cáo
+├── 📝 ClockDisplay.kt
+└── 📝 IdleOverlay.kt                       ← "Chạm để bắt đầu"
+▌ :feature:feature-admin — Admin Panel
+feature/feature-admin/
+└── 📁 src/main/kotlin/com/avf/vending/admin/
+├── 📝 AdminScreen.kt                           ← PIN lock → menu
+├── 📝 AdminViewModel.kt
+├── 📁 strategy/                                ← ── STRATEGY MANAGER UI ──────────────
+│   ├── 📝 StrategyManagerScreen.kt             ← danh sách strategies: ●XANH/●ĐỎ/●VÀNG
+│   │                                           ← [Dùng cổng này] [Sửa] [Bật/Tắt]
+│   └── 📝 StrategyManagerViewModel.kt          ← forceStrategy(), toggleStrategy()
+│                                               ← checkAllHealth(), editStrategyConfig()
+├── 📁 diagnostics/
+│   ├── 📝 DiagnosticsScreen.kt                 ← hardware health dashboard
+│   └── 📝 MotorTestGrid.kt                     ← test từng slot
+├── 📁 inventory/
+│   └── 📝 InventoryScreen.kt                   ← xem + chỉnh stock
+├── 📁 payment_config/
+│   └── 📝 PaymentConfigScreen.kt               ← bật/tắt Cash, Wallet, cấu hình API
+├── 📁 config/
+│   └── 📝 ConfigEditorScreen.kt                ← edit machine config trực tiếp
+├── 📁 sync/
+│   └── 📝 SyncStatusScreen.kt                  ← pending queue, manual trigger
+└── 📁 logs/
+└── 📝 LogViewerScreen.kt
+PHẦN 10 — :ui Modules  Design System · Navigation
+▌ :ui:ui-theme — Design System + Runtime Theme
+ui/ui-theme/
+└── 📁 src/main/kotlin/com/avf/vending/theme/
+├── 📝 VendingTheme.kt                          ← MaterialTheme wrapper
+├── 📝 VendingThemeEngine.kt                    ← Flow<VendingColorScheme> từ remote config
+│                                               ← runtime theme switch không restart app
+├── 📝 Color.kt                                 ← VendingColorScheme data class
+├── 📝 Typography.kt                            ← heading, body, price TextStyles
+├── 📝 Shape.kt                                 ← RoundedCornerShape constants
+└── 📝 Dimen.kt                                 ← spacing, iconSize, cardSize
+▌ :ui:ui-components — Shared Composables
+ui/ui-components/
+└── 📁 src/main/kotlin/com/avf/vending/components/
+├── 📝 VendingButton.kt                         ← primary, secondary, danger
+├── 📝 VendingCard.kt
+├── 📝 LoadingOverlay.kt
+├── 📝 ErrorDialog.kt
+├── 📝 ConfirmDialog.kt
+├── 📝 PinPad.kt                                ← numeric keypad admin PIN
+├── 📝 StatusBadge.kt                           ← online/offline/syncing
+├── 📝 CountdownTimer.kt                        ← animated ring
+├── 📝 NetworkStatusBar.kt                      ← top bar khi offline
+├── 📝 SkeletonLoader.kt                        ← placeholder khi loading
+└── 📝 StrategyStatusIndicator.kt               ← hiển thị cổng đang dùng
+▌ :ui:ui-navigation — NavHost + Routes
+ui/ui-navigation/
+└── 📁 src/main/kotlin/com/avf/vending/navigation/
+├── 📝 VendingNavHost.kt                        ← NavHost entry point
+├── 📝 VendingRoutes.kt                         ← @Serializable route objects
+│                                               ← IdleRoute, StorefrontRoute
+│                                               ← ProductDetailRoute(productId)
+│                                               ← PaymentRoute, DispensingRoute
+│                                               ← AdminRoute, StrategyManagerRoute
+├── 📝 NavigationManager.kt                     ← interface: navigateTo, back, popToIdle
+└── 📝 NavigationManagerImpl.kt
+PHẦN 11 — Test Structure  Unit · Integration · UI
+── Unit Tests (JVM only, không cần device) ─────────────────────
+core/core-domain/src/test/
+├── 📝 DispenseProductUseCaseTest.kt
+├── 📝 ProcessPaymentUseCaseTest.kt
+└── 📝 GetProductsUseCaseTest.kt
+hardware/hardware-xy/src/test/
+├── 📝 XYFrameCodecTest.kt                         ← encode/decode/validate
+├── 📝 XYAccumulatorTest.kt                        ← partial bytes → complete frames
+└── 📝 XYDriverTest.kt                             ← retry, timeout, fallback
+hardware/hardware-tcn/src/test/
+├── 📝 TCNFrameCodecTest.kt                        ← CRC16 correct
+├── 📝 TCNAccumulatorTest.kt
+└── 📝 TCNDriverTest.kt
+hardware/hardware-bill/src/test/
+├── 📝 ICTFrameCodecTest.kt                        ← ICT-BC encode/XOR checksum
+└── 📝 ICTBillDriverTest.kt                        ← escrow flow, event mapping
+hardware/hardware-transport/src/test/
+└── 📝 StrategyManagerTest.kt                      ← fallback chain, forceStrategy
+payment/src/test/
+├── 📝 CashPaymentProcessorTest.kt                 ← bill event → payment event mapping
+├── 📝 WalletPaymentProcessorTest.kt               ← poll timeout, confirmed flow
+└── 📝 PaymentOrchestratorTest.kt
+feature/feature-payment/src/test/
+├── 📝 PaymentStateMachineTest.kt                  ← valid/invalid transitions
+└── 📝 PaymentViewModelTest.kt
+── Integration Tests (Room in-memory) ─────────────────────────
+data/data-local/src/androidTest/
+├── 📝 ProductDaoTest.kt
+├── 📝 SyncQueueDaoTest.kt                         ← priority ordering
+└── 📝 MigrationTest.kt
+── Instrumented UI Tests (Compose) ─────────────────────────────
+feature/feature-storefront/src/androidTest/
+└── 📝 StorefrontScreenTest.kt
+feature/feature-payment/src/androidTest/
+└── 📝 PaymentFlowTest.kt                          ← end-to-end: chọn→QR→confirm
+PHẦN 12 — Module Map & Rules  Quick Reference
+Module
+Vai Trò
+Android?
+Depend On
+:app
+Shell + Flavors + DI wiring
+Có
+Tất cả modules
+:core:core-domain
+Models + UseCases + Repo interfaces
+KHÔNG
+(nothing)
+:core:core-common
+Result, Clock, Extensions
+KHÔNG
+core-domain
+:core:core-testing
+Fakes + Test utilities
+KHÔNG
+core-*
+:core:core-logger
+Logging abstraction
+KHÔNG
+(nothing)
+:data:data-local
+Room WAL + DataStore
+Có
+core-*
+:data:data-remote
+Retrofit + CircuitBreaker + Wallet API
+Có
+core-*
+:data:data-repository
+Repository impls + Mappers
+Có
+data-local, data-remote
+:hardware:hardware-api
+Interfaces + Models ONLY
+KHÔNG
+(nothing)
+:hardware:hardware-transport
+Serial/RS485/TCP/USB + StrategyManager
+Có
+hardware-api
+:hardware:hardware-xy
+XY codec (STX+XOR+ETX) + XYDriver
+KHÔNG
+hardware-api, transport
+:hardware:hardware-tcn
+TCN codec (AA55+CRC16) + TCNDriver
+KHÔNG
+hardware-api, transport
+:hardware:hardware-co
+CO codec + CoDriver
+KHÔNG
+hardware-api, transport
+:hardware:hardware-bill
+ICT-BC codec (XOR) + ICTBillDriver
+KHÔNG
+hardware-api, transport
+:hardware:hardware-mock
+Fake drivers (dev/test)
+KHÔNG
+hardware-api
+:payment
+PaymentOrchestrator + Cash + Wallet
+Có
+hardware-api, data-remote
+:sync
+SyncEngine + WorkManager
+Có
+data-repository, core-*
+:config
+MachineConfig + StrategyConfig + FeatureFlags
+Có
+data-*, core-*
+:feature:feature-storefront
+Product grid UI
+Có
+core-domain, hardware-api, ui-*, payment
+:feature:feature-payment
+Payment FSM + 2 panels
+Có
+core-domain, payment, ui-*
+:feature:feature-dispensing
+Dispense progress UI
+Có
+core-domain, hardware-api, ui-*
+:feature:feature-idle
+Attract screen
+Có
+core-domain, ui-*
+:feature:feature-admin
+Admin + Strategy Manager UI
+Có
+core-domain, hardware-api, config, ui-*
+:ui:ui-theme
+Design system + ThemeEngine
+Có
+(nothing)
+:ui:ui-components
+Shared Composables
+Có
+ui-theme
+:ui:ui-navigation
+NavHost + Routes
+Có
+ui-components
+🚨 5 Rules Bất Biến
+RULE 1 — Dependency 1 chiều: App → Feature → Domain ← Data · Hardware · Payment
+RULE 2 — core-domain: ZERO Android.* — vi phạm là bug kiến trúc nghiêm trọng
+RULE 3 — feature-* depend hardware-api (interface), KHÔNG depend hardware-xy/tcn/co/bill
+RULE 4 — hardware-* KHÔNG depend feature-* (cấm ngược chiều tuyệt đối)
+RULE 5 — mock flavor: dev chạy hàng ngày không cần phần cứng, luôn có mock cho mọi driver
+✅ Communication Strategy Rules
+Mỗi driver nhận StrategyManager — không nhận SerialTransport/TcpTransport trực tiếp
+Admin có thể force strategy thủ công khi cổng hỏng
+StrategyManager tự lưu lastSuccessful → restore khi reboot
+Bill validator LUÔN dùng parity=EVEN (ICT-BC spec) — KHÁC với máy chính (NONE)
+Strategy
+Machine
+Bill
+Baud/Parity
+Note
+Serial S0 (primary)
+XY · CO
+—
+9600/8N1
+/dev/ttyS0
+RS485 S0 (primary)
+TCN
+—
+19200/8N1
+half-duplex, busMutex
+TCP/IP (fallback)
+TCN
+—
+port 4001
+full-duplex, push events
+Serial S1 (backup)
+XY · TCN · CO
+—
+9600/8N1
+/dev/ttyS1
+USB-Serial
+XY · TCN · CO
+—
+9600/8N1
+adapter
+Serial S1 (primary)
+—
+ICT Bill
+9600/8E1
+EVEN parity!
+USB-Serial (backup)
+—
+ICT Bill
+9600/8E1
+EVEN parity!

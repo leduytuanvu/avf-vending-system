@@ -1,0 +1,38 @@
+name: Build XY Flavor
+
+on:
+  push:
+    branches: [ develop, main ]
+    paths:
+      - 'app/src/xy/**'
+      - 'hardware/hardware-xy/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+
+      - name: Build XY production release
+        run: ./gradlew app:assembleXyProductionRelease
+
+      - name: Upload XY APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xy-release-apk
+          path: app/build/outputs/apk/xy/productionRelease/*.apk

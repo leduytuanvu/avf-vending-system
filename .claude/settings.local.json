@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/admin/development/avf/**)",
+      "Bash(python -c \":*)",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}
